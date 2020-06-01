@@ -1,0 +1,5 @@
+scene[[:space:]](copy[[:space:]]3).blend filter=lfs diff=lfs merge=lfs -text
+scene.blend filter=lfs diff=lfs merge=lfs -text
+scene[[:space:]](copy[[:space:]]1).blend filter=lfs diff=lfs merge=lfs -text
+scene[[:space:]](copy[[:space:]]2).blend filter=lfs diff=lfs merge=lfs -text
+assets filter=lfs diff=lfs merge=lfs -text

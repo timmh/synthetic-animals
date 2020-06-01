@@ -1,0 +1,7 @@
+.dockerignore
+/Dockerfile
+/.vscode/
+/out/
+.git/
+__pycache__
+*.blend1
