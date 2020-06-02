@@ -164,6 +164,27 @@ def main():
 
     for i in range(1, N_SAMPLES + 1):
         bpy.ops.wm.open_mainfile(filepath=bpy.data.filepath)
+        bpy.context.scene.cycles.device = "GPU"
+        prefs = bpy.context.preferences
+        cprefs = prefs.addons["cycles"].preferences
+
+        # # Attempt to set GPU device types if available
+        # for compute_device_type in ("CUDA", "OPENCL", "NONE"):
+        #     try:
+        #         cprefs.compute_device_type = compute_device_type
+        #         break
+        #     except TypeError as e:
+        #         print(e)
+
+        bpy.context.scene.render.use_overwrite = False
+        bpy.context.scene.render.use_placeholder = True
+        cprefs.compute_device_type = "CUDA"
+
+        # Enable all CPU and GPU devices
+        print("getting devices:", cprefs.get_devices())
+        for device in cprefs.devices:
+            device.use = True
+        print("using devices:", cprefs.devices)
 
         animals = []
         for j in range(random.randint(MIN_N_ANIMALS, MAX_N_ANIMALS)):
