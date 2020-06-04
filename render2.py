@@ -10,6 +10,7 @@ import importlib
 import random
 import math
 from bpy.app.handlers import persistent
+import progressbar
 
 # make RNG deterministic
 random.seed(42)
@@ -59,17 +60,26 @@ def import_fbx(**kwargs):
             return ob
 
 
-def create_material(name, color_path, normal_path):
+def create_material(name, color_path, normal_path,SCENE_VARIATION):
     mat = bpy.data.materials.new(name=name)
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes["Principled BSDF"]
     texImage = mat.node_tree.nodes.new("ShaderNodeTexImage")
     texImage.image = bpy.data.images.load(bpy.path.abspath(color_path))
-    mat.node_tree.links.new(bsdf.inputs["Base Color"], texImage.outputs["Color"])
+    
     # norImage = mat.node_tree.nodes.new("ShaderNodeTexImage")
     # norImage.image = bpy.data.images.load(bpy.path.abspath(normal_path))
     # mat.node_tree.links.new(bsdf.inputs["Normal"], norImage.outputs["Color"])
     bsdf.inputs["Specular"].default_value = 0
+    
+    if SCENE_VARIATION == 'night':
+        bright_contrast = mat.node_tree.nodes.new("ShaderNodeBrightContrast")
+        bright_contrast.inputs["Bright"].default_value = 0.2
+        bright_contrast.inputs["Contrast"].default_value = 0
+        mat.node_tree.links.new(bright_contrast.inputs["Color"], texImage.outputs["Color"])
+        mat.node_tree.links.new(bsdf.inputs["Base Color"], bright_contrast.outputs["Color"])
+    else:
+        mat.node_tree.links.new(bsdf.inputs["Base Color"], texImage.outputs["Color"])
     return mat
 
 
@@ -110,16 +120,24 @@ def randomize_sun():
     sun.location.y += random.randrange(-50, 50)
 
 
-def import_animal(animal_data):
+def import_animal(animal_data, SCENE_VARIATION):
     animal = import_fbx(
         filepath=bpy.path.abspath(animal_data.model_path),
         automatic_bone_orientation=True,
     )
     animal_mesh = get_first_child_with_type(animal, "MESH")
+
+
+    # TODO: remove hack for proper deer display
+    for child in animal.children:
+        if child.name == 'deer_horns':
+            bpy.ops.object.delete({"selected_objects": [child]})
+
     mat = create_material(
         animal_data.name,
         animal_data.texture_color_path,
         animal_data.texture_normal_path,
+        SCENE_VARIATION
     )
     if animal_mesh.data.materials:
         animal_mesh.data.materials[0] = mat
@@ -129,14 +147,27 @@ def import_animal(animal_data):
     return animal
 
 
-class Bear:
-    name = "Bear"
-    model_path = "//assets/animal_pack_deluxe/Models/Bear_Rig.fbx"
-    texture_color_path = (
-        "//assets/animal_pack_deluxe/Textures/brown_bear_col4_unity.tga"
-    )
-    texture_normal_path = "//assets/animal_pack_deluxe/Textures/brown_bear_nrml7.tga"
-    animation_path = "//assets/animal_pack_deluxe/Animations/Bear_Run.fbx"
+def activate_cuda():
+    bpy.context.scene.cycles.device = "GPU"
+    prefs = bpy.context.preferences
+    cprefs = prefs.addons["cycles"].preferences
+    bpy.context.scene.render.use_overwrite = False
+    bpy.context.scene.render.use_placeholder = True
+    cprefs.compute_device_type = "CUDA"
+    print("getting devices:", cprefs.get_devices())
+    for device in cprefs.devices:
+        device.use = True
+    print("using devices:", cprefs.devices)
+    
+
+# class Bear:
+#     name = "Bear"
+#     model_path = "//assets/animal_pack_deluxe/Models/Bear_Rig.fbx"
+#     texture_color_path = (
+#         "//assets/animal_pack_deluxe/Textures/brown_bear_col4_unity.tga"
+#     )
+#     texture_normal_path = "//assets/animal_pack_deluxe/Textures/brown_bear_nrml7.tga"
+#     animation_path = "//assets/animal_pack_deluxe/Animations/Bear_Run.fbx"
 
 
 class Deer:
@@ -144,7 +175,7 @@ class Deer:
     model_path = "//assets/animal_pack_deluxe/Models/Deer_Rig.fbx"
     texture_color_path = "//assets/animal_pack_deluxe/Textures/deer_col6_unity.tga"
     texture_normal_path = "//assets/animal_pack_deluxe/Textures/deer_nrml4.tga"
-    animation_path = "//assets/animal_pack_deluxe/Animations/Deer_Run.fbx"
+    animation_path = "//assets/animal_pack_deluxe/Animations/Deer_Walk.fbx"
 
 
 class Boar:
@@ -152,45 +183,34 @@ class Boar:
     model_path = "//assets/animal_pack_deluxe/Models/WildBoar_Rig.fbx"
     texture_color_path = "//assets/animal_pack_deluxe/Textures/wild_boar_col9_unity.tga"
     texture_normal_path = "//assets/animal_pack_deluxe/Textures/wild_boar_nrml10.tga"
-    animation_path = "//assets/animal_pack_deluxe/Animations/WildBoar_Run.fbx"
+    animation_path = "//assets/animal_pack_deluxe/Animations/WildBoar_Walk.fbx"
+
+class Rabbit:
+    name = "Rabbit"
+    model_path = "//assets/animal_pack_deluxe/Models/WildRabbit_Rig.fbx"
+    texture_color_path = "//assets/animal_pack_deluxe/Textures/wild_rabbit_col_v3_unity.tga"
+    texture_normal_path = "//assets/animal_pack_deluxe/Textures/wild_rabbit_nrml_v3.tga"
+    animation_path = "//assets/animal_pack_deluxe/Animations/WildRabbit_Walk.fbx"
 
 
 def main():
     OUT_DIR = os.getenv("OUT_DIR", "./out")
-    N_SAMPLES = 2
-    ANIMALS = [Bear(), Deer(), Boar()]
+    os.makedirs(OUT_DIR, exist_ok=True)
+    N_SAMPLES = 1250
+    ANIMALS = [Deer(), Boar(), Rabbit()]
     MIN_N_ANIMALS = 0
     MAX_N_ANIMALS = 10
+    SCENE_VARIATION = 'night'
 
-    for i in range(1, N_SAMPLES + 1):
+    for i in progressbar.progressbar(range(1, N_SAMPLES + 1)):
         bpy.ops.wm.open_mainfile(filepath=bpy.data.filepath)
-        bpy.context.scene.cycles.device = "GPU"
-        prefs = bpy.context.preferences
-        cprefs = prefs.addons["cycles"].preferences
-
-        # # Attempt to set GPU device types if available
-        # for compute_device_type in ("CUDA", "OPENCL", "NONE"):
-        #     try:
-        #         cprefs.compute_device_type = compute_device_type
-        #         break
-        #     except TypeError as e:
-        #         print(e)
-
-        bpy.context.scene.render.use_overwrite = False
-        bpy.context.scene.render.use_placeholder = True
-        cprefs.compute_device_type = "CUDA"
-
-        # Enable all CPU and GPU devices
-        print("getting devices:", cprefs.get_devices())
-        for device in cprefs.devices:
-            device.use = True
-        print("using devices:", cprefs.devices)
+        # activate_cuda()
 
         animals = []
         for j in range(random.randint(MIN_N_ANIMALS, MAX_N_ANIMALS)):
             animal_data = random.sample(ANIMALS, 1)[0]
             class_id = ANIMALS.index(animal_data) + 1
-            animal = import_animal(animal_data)
+            animal = import_animal(animal_data, SCENE_VARIATION)
             animals.append(animal)
 
             animal.rotation_euler.z += random.random() * math.pi
@@ -203,13 +223,16 @@ def main():
         bpy.context.scene.frame_set(random.randint(0, 15))
         bpy.context.scene.cycles.seed = random.randint(10, 1000000000)
         randomize_particles()
-        randomize_sun()
+
+        if SCENE_VARIATION != 'night':
+            randomize_sun()
 
         result = bpycv.render_data()
 
+        rgb = result["image"]
         cv2.imwrite(
             os.path.join(OUT_DIR, f"{i:06d}_rgb.png"),
-            cv2.cvtColor(result["image"], cv2.COLOR_RGB2BGR),
+            cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR) if SCENE_VARIATION != 'night' else cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY),
         )
         cv2.imwrite(os.path.join(OUT_DIR, f"{i:06d}_ins.png"), result["inst"])
         cv2.imwrite(os.path.join(OUT_DIR, f"{i:06d}_cla.png"), result["class"])
