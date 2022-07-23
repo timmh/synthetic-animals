@@ -1,15 +1,14 @@
 import os
 import glob
+import functools
 import cv2
 import numpy as np
 import detectron2
-import pycocotools
+from detectron2.data import DatasetCatalog
 from detectron2.data import MetadataCatalog
-import functools
 
-synthdataset_dir = os.path.join("..", "out")
 
-def synthbbox(mask):
+def mask_to_bbox(mask):
     rows = np.any(mask, axis=1)
     cols = np.any(mask, axis=0)
     rmin, rmax = np.where(rows)[0][[0, -1]]
@@ -17,12 +16,14 @@ def synthbbox(mask):
 
     return [cmin, rmin, cmax, rmax]
 
+
 @functools.lru_cache
-def synthdataset_fn(validation=False):
+def synthetic_animals_dataset_fn(validation=False, dataset_dir=os.getenv("OUT_DIR", "./out")):
 
     @functools.lru_cache
-    def get_synthdataset():
-        filepaths = glob.glob(os.path.join(synthdataset_dir, "*_rgb.png"))
+    def get_synthetic_animals_dataset():
+
+        filepaths = glob.glob(os.path.join(dataset_dir, "*_rgb.png"))
         n_samples = len(filepaths)
 
         if validation:
@@ -58,26 +59,25 @@ def synthdataset_fn(validation=False):
                     # too small of an instance
                     continue
 
+                contours_ret = cv2.findContours((mask).astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+                if len(contours_ret) == 2:
+                    contours, _ = contours_ret
+                else:
+                    _, contours, _ = contours_ret
 
-                contours, hierarchy = cv2.findContours((mask).astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-                # before opencv 3.2
-                # contours, hierarchy = cv2.findContours((mask).astype(np.uint8), cv2.RETR_TREE,
-                #                                                    cv2.CHAIN_APPROX_SIMPLE)
                 segmentation = []
 
                 for contour in contours:
                     contour = contour.flatten().tolist()
-                    # segmentation.append(contour)
                     if len(contour) > 4:
                         segmentation.append(contour)
                 if len(segmentation) == 0:
                     continue
 
                 annotation = {}
-                annotation['bbox'] = synthbbox(mask)
+                annotation['bbox'] = mask_to_bbox(mask)
                 annotation['bbox_mode'] = detectron2.structures.BoxMode.XYXY_ABS
                 annotation['category_id'] = int(round(np.mean(cla[mask])) - 1)
-                # annotation['segmentation'] = pycocotools.mask.encode(np.asfortranarray(mask.astype(np.uint8)).copy())
                 annotation['segmentation'] = segmentation
                 dic['annotations'].append(annotation)
 
@@ -86,13 +86,12 @@ def synthdataset_fn(validation=False):
             ds.append(dic)
         return ds
     
-    return get_synthdataset
+    return get_synthetic_animals_dataset
 
-from detectron2.data import DatasetCatalog
 
-DatasetCatalog.register("synthdataset_train", synthdataset_fn(validation=False))
-DatasetCatalog.register("synthdataset_validation", synthdataset_fn(validation=True))
-MetadataCatalog.get("synthdataset_train").thing_classes = ["deer", 'boar', 'rabbit']
-MetadataCatalog.get("synthdataset_train").stuff_classes = []
-MetadataCatalog.get("synthdataset_validation").thing_classes = ["deer", 'boar', 'rabbit']
-MetadataCatalog.get("synthdataset_validation").stuff_classes = []
+DatasetCatalog.register("synthetic_animals_train", synthetic_animals_dataset_fn(validation=False))
+DatasetCatalog.register("synthetic_animals_validation", synthetic_animals_dataset_fn(validation=True))
+MetadataCatalog.get("synthetic_animals_train").thing_classes = ["deer", "boar", "rabbit"]
+MetadataCatalog.get("synthetic_animals_train").stuff_classes = []
+MetadataCatalog.get("synthetic_animals_validation").thing_classes = ["deer", "boar", "rabbit"]
+MetadataCatalog.get("synthetic_animals_validation").stuff_classes = []
