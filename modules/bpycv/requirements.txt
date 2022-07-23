@@ -1,4 +1,6 @@
+pandas==1.0.4
+Pillow==7.1.2
 boxx
 beautifulsoup4
 requests
-opencv-python
+opencv-python==4.2.0.34
